@@ -9,9 +9,13 @@ after it ends:
 2.  **`artifacts.py`** finds and removes what Claude Code keeps of a session.
     Each kind of file is one `Artifact` subclass in `ARTIFACTS`.
     `purge_session()` collects every finding before it removes anything.
-3.  **`settings.py`** adds and removes the hook entry in the settings file of
+3.  **`memory.py`** finds the memory notes that a session created, from the
+    `originSessionId` in their frontmatter. A purge reports those notes and
+    keeps them: later sessions may rely on a note or have edited it, and the
+    memory directory keeps no versions.
+4.  **`settings.py`** adds and removes the hook entry in the settings file of
     Claude Code.
-4.  **`cli.py`** only picks the session, calls the modules above, and prints
+5.  **`cli.py`** only picks the session, calls the modules above, and prints
     what they return.
 
 ## How a record finds its shell

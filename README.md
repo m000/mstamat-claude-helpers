@@ -64,8 +64,8 @@ entry without a change, and `hook --uninstall` removes it.
 
 ### Purge a session
 
-1.  List the sessions that ended in the current shell, with the directory and
-    the title of each:
+1.  List the sessions that ended in the current shell, with the directory, the
+    title and the number of memory notes of each:
 
     ``` bash
     claude-session-purge list
@@ -90,6 +90,11 @@ entry without a change, and `hook --uninstall` removes it.
 
 A purge refuses a session that is still running. After a purge, the helper
 deletes the records of the purged session and every record older than 14 days.
+
+A purge keeps the memory notes that Claude Code saved during the session,
+because later sessions rely on them. The purge lists the notes that the session
+created, so that you can delete any of them by hand. Claude Code records the
+creating session for some notes only, so the list can miss a note.
 
 ### Limitations
 

@@ -37,6 +37,7 @@ from mstamat_claude_helpers.session_purge.artifacts import (
     SessionRunningError,
     purge_session,
 )
+from mstamat_claude_helpers.session_purge.memory import memory_notes
 from mstamat_claude_helpers.session_purge.records import Record, RecordStore, SelectionError, Shell
 from mstamat_claude_helpers.session_purge.settings import HookSettings, hook_entry
 from mstamat_claude_helpers.session_purge.types import HookChange
@@ -95,6 +96,7 @@ def list_records(
         return
 
     claude_paths = ClaudePaths.default()
+    notes = memory_notes(claude_paths)
     now = datetime.now().astimezone()
     table = Table(box=None, header_style='bold')
     table.add_column('ID', no_wrap=True)
@@ -102,6 +104,7 @@ def list_records(
     table.add_column('Expires', justify='right', no_wrap=True)
     if every_shell:
         table.add_column('Terminal', no_wrap=True)
+    table.add_column('Notes', justify='right', no_wrap=True)
     table.add_column('Directory', overflow='ellipsis', no_wrap=True, ratio=1)
     table.add_column('Title', overflow='ellipsis', no_wrap=True, ratio=2)
     for r in records:
@@ -116,6 +119,7 @@ def list_records(
             f'{r.ended:%Y-%m-%d %H:%M}',
             expires,
             *terminal,
+            str(len(notes.get(r.session_id, []))),
             escape(tildify(r.directory)),
             escape(r.title or '-'),
         )
@@ -175,6 +179,7 @@ def purge(
             'total_size': sum(f.size for f in result.findings),
             'records': [str(r.path) for r in siblings + stale],
             'synced_url': result.synced_url,
+            'memory_notes': [str(p) for p in result.memory_notes],
         }
         print(json.dumps(report, indent=2))
         return
@@ -197,6 +202,12 @@ def purge(
         out.print(
             f'Records: {count} {verb} ({len(siblings)} of this session, {len(stale)} expired)'
         )
+    if result.memory_notes:
+        out.print(f'Memory notes created by this session, kept: {len(result.memory_notes)}')
+        for note in result.memory_notes:
+            out.print(f'  {escape(tildify(note))}', soft_wrap=True)
+    else:
+        out.print('Memory notes created by this session: none recorded')
     out.print()
     if result.synced_url:
         out.print('Delete the synced copy by hand, from the session menu on claude.ai:')

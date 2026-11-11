@@ -34,6 +34,7 @@ def test_purge_session__dry_run(claude_paths: ClaudePaths, make_record: MakeReco
         'paste',
     }
     assert result.synced_url == 'https://claude.ai/code/x'
+    assert result.memory_notes == [claude_paths.projects / '-proj' / 'memory' / 'mine.md']
     assert sorted(claude_paths.claude_dir.rglob('*')) == before
 
 
@@ -41,7 +42,8 @@ def test_purge_session__dry_run(claude_paths: ClaudePaths, make_record: MakeReco
 def test_purge_session__removes(claude_paths: ClaudePaths, make_record: MakeRecord) -> None:
     """Test that a purge removes the session's artifacts and keeps those of other sessions.
 
-    The history keeps the other session's prompts and its file mode. The paste cache keeps the
+    The memory notes stay, those of the session included. The history keeps the other session's
+    prompts and its file mode. The paste cache keeps the
     pastes that another session references. The key file of the process record goes with it.
     """
     session = Session(SESSION, [make_record()], claude_paths)
@@ -60,6 +62,11 @@ def test_purge_session__removes(claude_paths: ClaudePaths, make_record: MakeReco
         'projects',
         'projects/-proj',
         f'projects/-proj/{OTHER}.jsonl',
+        'projects/-proj/memory',
+        'projects/-proj/memory/MEMORY.md',
+        'projects/-proj/memory/mine.md',
+        'projects/-proj/memory/theirs.md',
+        'projects/-proj/memory/unknown.md',
         'session-env',
         'sessions',
     ]

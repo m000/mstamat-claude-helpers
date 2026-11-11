@@ -63,6 +63,9 @@ def fixture_make_record(store: RecordStore, claude_paths: ClaudePaths) -> MakeRe
 def fixture_session_files(claude_paths: ClaudePaths) -> None:
     """The artifacts of SESSION, next to those of OTHER that a purge of SESSION must keep.
 
+    Of the memory notes, `mine` was created by SESSION, `theirs` by OTHER, and `unknown` records no
+    origin. The index MEMORY.md names SESSION too, but is no note.
+
     Of the pastes, `mine` is referenced by SESSION only, `shared` by both sessions, and `theirs`
     by OTHER only. The process record of SESSION belongs to an exited process.
     """
@@ -100,6 +103,12 @@ def fixture_session_files(claude_paths: ClaudePaths) -> None:
         }
         for sid, hashes in prompts
     ]
+    memory = claude_paths.projects / '-proj' / 'memory'
+    memory.mkdir()
+    for name, origin in (('mine', SESSION), ('theirs', OTHER), ('unknown', None)):
+        meta = f'  originSessionId: {origin}\n' if origin else ''
+        (memory / f'{name}.md').write_text(f'---\nname: {name}\nmetadata:\n{meta}---\n\nA note.\n')
+    (memory / 'MEMORY.md').write_text(f'- [mine](mine.md) originSessionId: {SESSION}\n')
     # Claude Code writes the history compactly, which the purge's line match relies on.
     claude_paths.history.write_text(
         ''.join(json.dumps(x, separators=(',', ':')) + '\n' for x in lines)

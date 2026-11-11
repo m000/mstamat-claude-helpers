@@ -28,3 +28,4 @@ class SessionPurge(NamedTuple):
     findings: list[Finding]
     synced_url: str | None
     running_pids: list[int]
+    memory_notes: list[Path]  # created by the session, and kept

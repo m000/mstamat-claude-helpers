@@ -9,6 +9,7 @@ import psutil
 
 from mstamat_claude_helpers.common.claude_paths import ClaudePaths
 from mstamat_claude_helpers.common.files import atomic_write, remove_path, size_of
+from mstamat_claude_helpers.session_purge.memory import memory_notes
 from mstamat_claude_helpers.session_purge.records import Record
 from mstamat_claude_helpers.session_purge.types import Finding, SessionPurge
 
@@ -232,6 +233,7 @@ def purge_session(session: Session, *, dry_run: bool) -> SessionPurge:
     """Remove the local artifacts of a session, and report what was found.
 
     Everything is collected before anything is removed, the URL of the synced copy included.
+    The memory notes the session created are reported and kept.
     A running session raises SessionRunningError; a dry run reports its pids instead.
     """
     running = session.running_pids
@@ -239,7 +241,8 @@ def purge_session(session: Session, *, dry_run: bool) -> SessionPurge:
         raise SessionRunningError(session.id, running)
     found = [(artifact, artifact.find(session)) for artifact in ARTIFACTS]
     url = session.synced_url()
+    notes = memory_notes(session.claude_paths).get(session.id, [])
     if not dry_run:
         for artifact, findings in found:
             artifact.remove(session, findings)
-    return SessionPurge([f for _, findings in found for f in findings], url, running)
+    return SessionPurge([f for _, findings in found for f in findings], url, running, notes)
