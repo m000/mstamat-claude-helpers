@@ -1,0 +1,28 @@
+# Install with `uv run --group dev pre-commit install`.
+#
+# NB: The hooks are local and run the tools through `uv run`, rather than the
+#     official astral-sh/ruff-pre-commit hook. The official hook pins ruff in
+#     its own `rev:`, apart from uv.lock, so the hook and `make lint` or CI can
+#     disagree after a bump to only one of them. Here uv.lock is the single
+#     place for tool versions. The cost: committing needs uv, and hosted
+#     runners such as pre-commit.ci cannot run these hooks.
+default_install_hook_types: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --group dev ruff format
+        language: system
+        types: [python]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --group dev ruff check
+        language: system
+        types: [python]
+      - id: ty
+        name: ty check
+        entry: uv run --group dev ty check src tests
+        language: system
+        types: [python]
+        pass_filenames: false

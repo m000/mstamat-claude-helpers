@@ -1,0 +1,58 @@
+[project]
+name = "mstamat-claude-helpers"
+version = "0.1.0"
+description = "Command-line helpers around Claude Code: so far, a purge of the local artifacts of ended sessions."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Manolis Stamatogiannakis" }]
+requires-python = ">=3.12"
+dependencies = [
+    "cyclopts>=5.4",
+    "psutil>=7.2",
+    "rich>=15",
+]
+keywords = ["claude code", "coding agent", "hooks", "privacy", "cleanup"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+claude-session-purge = "mstamat_claude_helpers.session_purge.cli:main"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4",
+    "pytest>=8",
+    "ruff>=0.15",
+    "ty>=0.0.99",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "PTH", "C90", "PL", "RUF", "SIM", "ANN"]
+ignore = ["PLR"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLC0415"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
