@@ -22,6 +22,10 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
+[project.urls]
+Homepage = "https://github.com/m000/mstamat-claude-helpers"
+Issues = "https://github.com/m000/mstamat-claude-helpers/issues"
+
 [project.scripts]
 claude-session-purge = "mstamat_claude_helpers.session_purge.cli:main"
 
