@@ -34,10 +34,16 @@ class ProcessRecord:
 
     @classmethod
     def load(cls, path: Path, data: dict[str, Any]) -> Self:
+        """The record, alive when its pid belongs to a Claude Code process.
+
+        NB: startedAt cannot tell a reused pid apart: a resumed session keeps the startedAt of its
+            first start and runs in a newer process. The process is told apart by its name or
+            command line instead, which also covers an npm install that runs as `node`. A pid
+            reused by another Claude Code process reads as running, which errs on the safe side.
+        """
         try:
-            started = psutil.Process(data['pid']).create_time()
-            # NB: Without startedAt a reused pid reads as running, which errs on the safe side.
-            alive = 'startedAt' not in data or abs(started - data['startedAt'] / 1000) < 5
+            process = psutil.Process(data['pid'])
+            alive = 'claude' in process.name() or any('claude' in a for a in process.cmdline())
         except psutil.NoSuchProcess:
             alive = False
         return cls(path, data['pid'], data.get('bridgeSessionId'), alive)

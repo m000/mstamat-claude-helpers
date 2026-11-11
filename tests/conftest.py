@@ -1,5 +1,7 @@
 import json
-from collections.abc import Callable
+import shutil
+import subprocess
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -103,6 +105,27 @@ def fixture_session_files(claude_paths: ClaudePaths) -> None:
         ''.join(json.dumps(x, separators=(',', ':')) + '\n' for x in lines)
     )
     claude_paths.history.chmod(0o600)
+
+
+@pytest.fixture(name='claude_process')
+def fixture_claude_process(tmp_path: Path) -> Iterator[int]:
+    """The pid of a running child process named `claude`: `sleep` behind a symlink of that name."""
+    claude = tmp_path / 'bin' / 'claude'
+    claude.parent.mkdir()
+    claude.symlink_to(shutil.which('sleep') or '/bin/sleep')
+    process = subprocess.Popen([claude, '60'])
+    yield process.pid
+    process.kill()
+    process.wait()
+
+
+@pytest.fixture(name='other_process')
+def fixture_other_process() -> Iterator[int]:
+    """The pid of a running child process that is not Claude Code."""
+    process = subprocess.Popen([shutil.which('sleep') or '/bin/sleep', '60'])
+    yield process.pid
+    process.kill()
+    process.wait()
 
 
 @pytest.fixture(name='claude_env')

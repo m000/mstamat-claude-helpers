@@ -1,11 +1,11 @@
 import json
-import os
+from pathlib import Path
 
-import psutil
 import pytest
 
 from mstamat_claude_helpers.common.claude_paths import ClaudePaths
 from mstamat_claude_helpers.session_purge.artifacts import (
+    ProcessRecord,
     Session,
     SessionRunningError,
     purge_session,
@@ -72,17 +72,19 @@ def test_purge_session__removes(claude_paths: ClaudePaths, make_record: MakeReco
 
 
 @pytest.mark.usefixtures('session_files')
-def test_purge_session__running(claude_paths: ClaudePaths, make_record: MakeRecord) -> None:
+def test_purge_session__running(
+    claude_paths: ClaudePaths, make_record: MakeRecord, claude_process: int
+) -> None:
     """Test that a running session raises SessionRunningError, and that a dry run reports its
-    pid instead and removes nothing."""
-    started = psutil.Process(os.getpid()).create_time()
-    running = {'pid': os.getpid(), 'sessionId': SESSION, 'startedAt': int(started * 1000)}
-    (claude_paths.sessions / f'{os.getpid()}.json').write_text(json.dumps(running))
+    pid instead and removes nothing. The record's startedAt predates the process, as it does for
+    a resumed session."""
+    running = {'pid': claude_process, 'sessionId': SESSION, 'startedAt': 1_000_000_000_000}
+    (claude_paths.sessions / f'{claude_process}.json').write_text(json.dumps(running))
     session = Session(SESSION, [make_record()], claude_paths)
 
     with pytest.raises(SessionRunningError):
         purge_session(session, dry_run=False)
-    assert purge_session(session, dry_run=True).running_pids == [os.getpid()]
+    assert purge_session(session, dry_run=True).running_pids == [claude_process]
     assert (claude_paths.projects / '-proj' / f'{SESSION}.jsonl').exists()
 
 
@@ -99,3 +101,11 @@ def test_session_synced_url__process_record(claude_paths: ClaudePaths) -> None:
         Session(SESSION, no_records, claude_paths).synced_url()
         == 'https://claude.ai/code/session_B'
     )
+
+
+# ProcessRecord ####################################################################################
+def test_process_record_load__reused_pid(tmp_path: Path, other_process: int) -> None:
+    """Test that a record whose pid now belongs to a process other than Claude Code is stale."""
+    data = {'pid': other_process, 'sessionId': SESSION}
+
+    assert not ProcessRecord.load(tmp_path / 'record.json', data).alive
