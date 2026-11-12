@@ -74,7 +74,7 @@ def human(size: float) -> str:
 
 
 # Commands #########################################################################################
-@app.command(name='list')
+@app.command(name='list', alias='l')
 def list_records(
     *, every_shell: Annotated[bool, Parameter(name='--all', negative=())] = False
 ) -> None:
@@ -126,12 +126,12 @@ def list_records(
     out.print(table)
 
 
-@app.command
+@app.command(alias='p')
 def purge(
     *,
     session_id: Annotated[str | None, Parameter(name='--id', group=target)] = None,
     auto: Annotated[bool, Parameter(group=target, negative=())] = False,
-    dry_run: Annotated[bool, Parameter(negative=())] = False,
+    dry_run: Annotated[bool, Parameter(name=('--dry-run', '-n'), negative=())] = False,
     as_json: Annotated[bool, Parameter(name='--json', negative=())] = False,
 ) -> None:
     """Remove the local artifacts of one session, then the records that are no longer needed.
@@ -218,7 +218,7 @@ def purge(
         )
 
 
-@app.command
+@app.command(alias='r')
 def record() -> None:
     """Record the session that just ended. The SessionEnd hook runs this, with the hook input on
     stdin."""
