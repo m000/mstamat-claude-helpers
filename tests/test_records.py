@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from datetime import timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from mstamat_claude_helpers.session_purge.records import (
     RecordStore,
     SelectionError,
     Shell,
+    branch_of,
     title_of,
 )
 from tests.conftest import OTHER, SESSION, MakeRecord
@@ -44,6 +46,7 @@ def test_record_from_hook__ancestors(
     assert record.shell == (Shell.of_session(os.getsid(os.getpid())) if terminal else None)
     assert record.title is None
     assert record.directory == Path('/work/project')
+    assert record.branch is None
     assert record.hook_input == hook_input
 
 
@@ -74,6 +77,44 @@ def test_title_of__entries(tmp_path: Path, entries: list[dict[str, str]], title:
     transcript.write_text(''.join(json.dumps(e) + '\n' for e in entries))
 
     assert title_of(transcript) == title
+
+
+def test_branch_of__repository(tmp_path: Path) -> None:
+    """Test that the branch is the one checked out in a repository, and None on a detached HEAD,
+    outside a repository and in a missing directory."""
+    repo, plain = tmp_path / 'repo', tmp_path / 'plain'
+    plain.mkdir()
+    git = ['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@example.com']
+    subprocess.run(['git', 'init', '--quiet', '--initial-branch', 'feature/x', repo], check=True)
+
+    assert branch_of(repo) == 'feature/x'
+
+    subprocess.run([*git, 'commit', '--quiet', '--allow-empty', '-m', 'c'], check=True)
+    subprocess.run([*git, 'checkout', '--quiet', '--detach'], check=True)
+
+    assert branch_of(repo) is None
+    assert branch_of(plain) is None
+    assert branch_of(tmp_path / 'missing') is None
+
+
+def test_branch_of__no_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Test that the branch is None when git is not installed."""
+    monkeypatch.setenv('PATH', str(tmp_path))
+
+    assert branch_of(tmp_path) is None
+
+
+def test_record_load__no_branch(store: RecordStore, make_record: MakeRecord) -> None:
+    """Test that a record written before the branch was recorded loads without one."""
+    record = make_record()
+    assert record.path is not None
+    data = json.loads(record.path.read_text())
+    del data['branch']
+    record.path.write_text(json.dumps(data))
+
+    [loaded] = store.all()
+
+    assert loaded.branch is None
 
 
 # RecordStore ######################################################################################

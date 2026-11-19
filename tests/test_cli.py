@@ -13,6 +13,29 @@ from mstamat_claude_helpers.session_purge.records import RecordStore, Shell
 from tests.conftest import OTHER, SESSION, THIRD, MakeRecord
 
 
+# list_records() ###################################################################################
+@pytest.mark.usefixtures('claude_env')
+def test_list__branch(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, make_record: MakeRecord
+) -> None:
+    """Test that the list shows the branch of each session, and N/A for a record without one, as
+    the records from before the branch was recorded are."""
+    monkeypatch.setenv('COLUMNS', '300')  # wide enough that no column is cut
+    make_record(SESSION, branch='feature/x')
+    old = make_record(OTHER, age=timedelta(hours=2))
+    assert old.path is not None
+    data = json.loads(old.path.read_text())
+    del data['branch']
+    old.path.write_text(json.dumps(data))
+
+    app(['l'], result_action='return_value')
+
+    header, newest, oldest = capsys.readouterr().out.splitlines()
+    assert 'Branch' in header
+    assert (SESSION[:8] in newest, 'feature/x' in newest) == (True, True)
+    assert (OTHER[:8] in oldest, 'N/A' in oldest) == (True, True)
+
+
 # purge() ##########################################################################################
 @pytest.fixture(name='answers')
 def fixture_answers(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:

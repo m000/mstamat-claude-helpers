@@ -109,6 +109,7 @@ def list_records(
         table.add_column('Terminal', no_wrap=True)
     table.add_column('Notes', justify='right', no_wrap=True)
     table.add_column('Directory', overflow='ellipsis', no_wrap=True, ratio=1)
+    table.add_column('Branch', overflow='ellipsis', no_wrap=True, max_width=24)
     table.add_column('Title', overflow='ellipsis', no_wrap=True, ratio=2)
     for r in records:
         running = Session(r.session_id, [r], claude_paths).running_pids
@@ -124,6 +125,7 @@ def list_records(
             *terminal,
             str(len(notes.get(r.session_id, []))),
             escape(tildify(r.directory)),
+            escape(r.branch or 'N/A'),
             escape(r.title or '-'),
         )
     out.print(table)

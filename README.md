@@ -65,7 +65,7 @@ entry without a change, and `hook --uninstall` removes it.
 ### Purge a session
 
 1.  List the sessions that ended in the current shell, with the directory, the
-    title and the number of memory notes of each:
+    git branch at exit, the title and the number of memory notes of each:
 
     ``` bash
     claude-session-purge list

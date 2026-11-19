@@ -37,6 +37,7 @@ def fixture_make_record(store: RecordStore, claude_paths: ClaudePaths) -> MakeRe
         *,
         age: timedelta = timedelta(hours=1),
         shell: Shell | None = None,
+        branch: str | None = 'main',
     ) -> Record:
         record = Record(
             session_id=session_id,
@@ -44,6 +45,7 @@ def fixture_make_record(store: RecordStore, claude_paths: ClaudePaths) -> MakeRe
             ended=datetime.now().astimezone() - age,
             title='A title',
             directory=claude_paths.claude_dir.parent / 'project',
+            branch=branch,
             terminal='/dev/pts/9',
             shell=shell or Shell.current(),
             claude_pid=None,

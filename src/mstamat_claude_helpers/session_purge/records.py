@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import subprocess
 from collections.abc import Collection, Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -67,6 +68,7 @@ class Record:
     ended: datetime
     title: str | None
     directory: Path  # the working directory of the session, as the hook input gave it
+    branch: str | None  # the git branch checked out in the directory when the session ended
     terminal: str | None
     shell: Shell | None
     claude_pid: int | None
@@ -88,6 +90,7 @@ class Record:
             ended=datetime.now().astimezone(),
             title=title_of(transcript) if transcript.is_file() else None,
             directory=Path(hook_input['cwd']),
+            branch=branch_of(Path(hook_input['cwd'])),
             terminal=claude.terminal() if claude else None,
             shell=Shell.of_session(os.getsid(claude.pid)) if claude else None,
             claude_pid=claude.pid if claude else None,
@@ -105,6 +108,7 @@ class Record:
                     ended=datetime.fromisoformat(data['ended']),
                     title=data['title'],
                     directory=Path(data['directory']),
+                    branch=data.get('branch'),  # records from before 0.3.0 have none
                     terminal=data['terminal'],
                     shell=Shell(**data['shell']) if data['shell'] else None,
                     claude_pid=data['claude_pid'],
@@ -132,6 +136,7 @@ class Record:
             'ended': self.ended.isoformat(),
             'title': self.title,
             'directory': str(self.directory),
+            'branch': self.branch,
             'terminal': self.terminal,
             'shell': asdict(self.shell) if self.shell else None,
             'claude_pid': self.claude_pid,
@@ -143,6 +148,22 @@ class Record:
         if self.path is None:  # pragma: no cover
             raise ValueError(f'the record of {self.session_id} was never saved')
         self.path.unlink()
+
+
+def branch_of(directory: Path) -> str | None:
+    """The git branch checked out in a directory. None outside a repository, on a detached HEAD,
+    and when git fails or is missing: the hook must record the session all the same."""
+    try:
+        git = subprocess.run(
+            ['git', '-C', str(directory), 'branch', '--show-current'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return git.stdout.strip() or None if git.returncode == 0 else None
 
 
 def title_of(transcript: Path) -> str | None:
