@@ -22,6 +22,14 @@ class HookChange(StrEnum):
     UNCHANGED = 'unchanged'
 
 
+class Outcome(StrEnum):
+    """What became of a session picked for a purge."""
+
+    PURGED = 'purged'
+    DRY_RUN = 'dry_run'
+    DECLINED = 'declined'
+
+
 class SessionPurge(NamedTuple):
     """The outcome of purging a session's artifacts, or of a dry run of it."""
 

@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -214,14 +214,14 @@ class RecordStore:
         return siblings
 
     def purge_stale_records(
-        self, *, dry_run: bool, keep_session: str | None = None
+        self, *, dry_run: bool, keep_sessions: Collection[str] = ()
     ) -> list[Record]:
         """Remove the records that expired, RECORD_TTL after their session ended. Returns them.
 
-        The records of `keep_session` stay, for purge_sibling_records to count as its own.
+        The records of `keep_sessions` stay, for purge_sibling_records to count as their own.
         """
         now = datetime.now().astimezone()
-        stale = [r for r in self.all() if r.expires <= now and r.session_id != keep_session]
+        stale = [r for r in self.all() if r.expires <= now and r.session_id not in keep_sessions]
         if not dry_run:
             for r in stale:
                 r.delete()

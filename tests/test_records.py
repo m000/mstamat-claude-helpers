@@ -151,7 +151,7 @@ def test_record_store_purge_stale_records__keep_session(
     expired = make_record(OTHER, age=timedelta(days=15))
     fresh = make_record('22222222-0000-0000-0000-000000000000', age=timedelta(days=13))
 
-    stale = store.purge_stale_records(dry_run=False, keep_session=SESSION)
+    stale = store.purge_stale_records(dry_run=False, keep_sessions={SESSION})
 
     assert stale == [expired]
     assert {r.session_id for r in store.all()} == {SESSION, fresh.session_id}

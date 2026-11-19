@@ -12,6 +12,7 @@ from mstamat_claude_helpers.session_purge.records import Record, RecordStore, Sh
 
 SESSION = '11111111-2222-3333-4444-555555555555'
 OTHER = '99999999-8888-7777-6666-555555555555'
+THIRD = '22222222-0000-0000-0000-000000000000'
 
 type MakeRecord = Callable[..., Record]
 

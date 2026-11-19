@@ -73,23 +73,28 @@ entry without a change, and `hook --uninstall` removes it.
 
     Use `--all` to list the sessions of every shell.
 
-2.  See what a purge of the latest session would remove:
+2.  See what a purge of the latest session of the current shell would remove:
 
     ``` bash
-    claude-session-purge purge --auto --dry-run
+    claude-session-purge purge -n
     ```
 
-    Use `--id` with a session id, or with the start of one, to pick a
-    different session.
+    Give one or more session ids, or the start of each, to pick other
+    sessions.
 
 3.  Purge the session:
 
     ``` bash
-    claude-session-purge purge --auto
+    claude-session-purge purge
     ```
 
-A purge refuses a session that is still running. After a purge, the helper
-deletes the records of the purged session and every record older than 14 days.
+    The purge shows each session and asks before it removes anything. It
+    removes the sessions that you approved after the last question. Use `-y`
+    to purge without questions, for example from a script.
+
+A purge refuses a session that is still running, and then removes nothing.
+After a purge, the helper deletes the records of the purged sessions and every
+record older than 14 days.
 
 A purge keeps the memory notes that Claude Code saved during the session,
 because later sessions rely on them. The purge lists the notes that the session
@@ -100,7 +105,7 @@ creating session for some notes only, so the list can miss a note.
 
 - Claude Code does not document where it keeps session data. The helper follows
   the layout of Claude Code 2.1.322. After an upgrade of Claude Code, check a
-  purge with `--dry-run` first.
+  purge with `-n` first.
 - The tests run on Linux only. The helper reads processes through psutil, so it
   should work on macOS too, but no test ran there yet.
 

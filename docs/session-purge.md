@@ -15,14 +15,16 @@ after it ends:
     memory directory keeps no versions.
 4.  **`settings.py`** adds and removes the hook entry in the settings file of
     Claude Code.
-5.  **`cli.py`** only picks the session, calls the modules above, and prints
-    what they return.
+5.  **`cli.py`** only picks the sessions, calls the modules above, and prints
+    what they return. A `purge` first shows every picked session and gathers the
+    approvals, and removes the approved sessions at the end.
 
 ## How a record finds its shell
 
 The SessionEnd hook runs without a terminal. Its first ancestor process with a
 terminal is `claude`. The leader of that terminal session is the shell that
-started `claude`, and `--auto` later runs in the same session.
+started `claude`, and a `purge` without a session id later runs in the same
+session.
 
 A record keys the shell by its process id and its start time. Process ids are
 reused, so the start time tells a new shell from an old one with the same id.

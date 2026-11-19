@@ -1,9 +1,9 @@
 """Remove the local artifacts of Claude Code sessions.
 
 A SessionEnd hook, installed with `hook --install`, records every session that ends, together with
-the shell it was started from. `list` shows the recorded sessions. `purge` removes one session,
-given by id or as the latest that ended in the current shell, and then the records it no longer
-needs.
+the shell it was started from. `list` shows the recorded sessions. `purge` removes the sessions
+given by id, or else the latest that ended in the current shell, and then the records it no longer
+needs. It asks before it removes anything, unless told not to with `-y`.
 
 For a session, `purge` removes:
 
@@ -20,14 +20,17 @@ import json
 import math
 import shlex
 import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import psutil
 from cyclopts import App, Group, Parameter, validators
 from rich.console import Console
 from rich.markup import escape
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from mstamat_claude_helpers import __version__
@@ -40,13 +43,13 @@ from mstamat_claude_helpers.session_purge.artifacts import (
 from mstamat_claude_helpers.session_purge.memory import memory_notes
 from mstamat_claude_helpers.session_purge.records import Record, RecordStore, SelectionError, Shell
 from mstamat_claude_helpers.session_purge.settings import HookSettings, hook_entry
-from mstamat_claude_helpers.session_purge.types import HookChange
+from mstamat_claude_helpers.session_purge.types import HookChange, Outcome, SessionPurge
 
 out = Console(highlight=False)
 err = Console(stderr=True, highlight=False)
 
 app = App(name='claude-session-purge', help=__doc__, version=__version__)
-target = Group('Session', validator=validators.LimitedChoice(1, 1))
+mode = Group('Mode', validator=validators.MutuallyExclusive())
 action = Group('Action', validator=validators.LimitedChoice(1, 1))
 
 
@@ -128,94 +131,215 @@ def list_records(
 
 @app.command(alias='p')
 def purge(
-    *,
-    session_id: Annotated[str | None, Parameter(name='--id', group=target)] = None,
-    auto: Annotated[bool, Parameter(group=target, negative=())] = False,
-    dry_run: Annotated[bool, Parameter(name=('--dry-run', '-n'), negative=())] = False,
+    *session_ids: str,
+    interactive: Annotated[
+        bool, Parameter(name='-i', group=mode, negative=(), show_default=False)
+    ] = False,
+    yes: Annotated[bool, Parameter(name='-y', group=mode, negative=(), show_default=False)] = False,
+    no: Annotated[bool, Parameter(name='-n', group=mode, negative=(), show_default=False)] = False,
     as_json: Annotated[bool, Parameter(name='--json', negative=())] = False,
 ) -> None:
-    """Remove the local artifacts of one session, then the records that are no longer needed.
+    """Remove the local artifacts of sessions, then the records that are no longer needed.
 
-    The records removed are those of the purged session, from any shell, and those older than
-    14 days. A session that is still running is refused.
+    Without a session id, the session that ended last in this shell is purged. Every session is
+    shown and asked about first, and the approved ones are purged at the end.
+
+    The records removed are those of the purged sessions, from any shell, and those older than
+    14 days. A session that is still running is refused, and then nothing is purged.
 
     Parameters
     ----------
-    session_id
-        The session to purge: a full session id, or a prefix of a recorded one.
-    auto
-        Purge the session that ended last in this shell.
-    dry_run
-        Show what would be removed, and remove nothing.
+    session_ids
+        The sessions to purge: full session ids, or prefixes of recorded ones.
+    interactive
+        Ask before the purge of each session. This is the default.
+    yes
+        Purge every session without asking.
+    no
+        Purge nothing: a dry run, which shows what would be removed.
     as_json
-        Print the findings as JSON instead of a table.
+        Print the outcome as JSON. The questions go to the standard error.
     """
+    del interactive  # the default: it only names the mode that neither -y nor -n is given
+    asking = not (yes or no)
+    if asking and not sys.stdin.isatty():
+        die('no terminal to ask on: give -y to purge without asking, or -n for a dry run')
     store = RecordStore.default()
-    try:
-        match session_id, auto:
-            case None, True:
-                sid = store.latest(Shell.current()).session_id
-            case str(), False:
-                sid = store.resolve(session_id)
-            case _:  # pragma: no cover
-                raise ValueError('exactly one of --id and --auto is required')
-        session = Session(
-            sid, [r for r in store.all() if r.session_id == sid], ClaudePaths.default()
-        )
-        result = purge_session(session, dry_run=dry_run)
-    except (SelectionError, SessionRunningError) as exc:
-        die(str(exc))
-    siblings = store.purge_sibling_records(sid, dry_run=dry_run)
-    stale = store.purge_stale_records(dry_run=dry_run, keep_session=sid)
+    picks = pick_sessions(store, session_ids, dry_run=no)
+    gather_approvals(picks, err if as_json else out, asking=asking, quiet=as_json and not asking)
 
-    if result.running_pids:
-        err.print(f'[yellow]warning:[/] session {sid} is still running, sizes are a snapshot')
+    # Purge.
+    chosen = [p for p in picks if p.outcome is not Outcome.DECLINED]
+    for pick in chosen:
+        if no:
+            continue
+        try:
+            pick.found = purge_session(pick.session, dry_run=False)
+        except SessionRunningError as exc:
+            die(str(exc))
+        store.purge_sibling_records(pick.session.id, dry_run=False)
+        pick.outcome = Outcome.PURGED
+    own = [r for p in chosen for r in p.session.records]
+    stale = (
+        store.purge_stale_records(dry_run=no, keep_sessions={p.session.id for p in chosen})
+        if chosen
+        else []
+    )
+
     if as_json:
-        report = {
-            'session_id': sid,
-            'dry_run': dry_run,
-            'running_pids': result.running_pids,
-            'findings': [{**f._asdict(), 'path': str(f.path)} for f in result.findings],
-            'total_size': sum(f.size for f in result.findings),
-            'records': [str(r.path) for r in siblings + stale],
-            'synced_url': result.synced_url,
-            'memory_notes': [str(p) for p in result.memory_notes],
-        }
-        print(json.dumps(report, indent=2))
+        print(json.dumps(json_report(picks, stale, dry_run=no), indent=2))
         return
+    if not chosen:
+        out.print('Nothing removed.')
+        return
+    verb = 'would be removed' if no else 'removed'
+    count = f'{len(chosen)} session' + ('s' if len(chosen) > 1 else '')
+    size = human(sum(p.size for p in chosen))
+    out.print(f'{"Dry run" if no else "Purged"}: {count}, {size} {verb}')
+    if own or stale:
+        out.print(
+            f'Records: {len(own) + len(stale)} {verb} '
+            f'({len(own)} of the purged sessions, {len(stale)} expired)'
+        )
+    if urls := [p.found.synced_url for p in chosen if p.found.synced_url]:
+        out.print('Delete the synced copies by hand, from the session menu on claude.ai:')
+        for url in urls:
+            out.print(f'  {url}', soft_wrap=True)
 
-    verb = 'would be removed' if dry_run else 'removed'
-    if result.findings:
+
+@dataclass
+class Pick:
+    """A session picked for a purge: what a purge finds of it, and what became of it."""
+
+    session: Session
+    found: SessionPurge
+    outcome: Outcome = Outcome.DRY_RUN
+
+    @property
+    def size(self) -> int:
+        return sum(f.size for f in self.found.findings)
+
+
+def pick_sessions(store: RecordStore, session_ids: Sequence[str], *, dry_run: bool) -> list[Pick]:
+    """The sessions to purge, with what a purge finds of each: those given, or else the session
+    that ended last in this shell. An id that matches no session exits with an error, and so does
+    a running session, of which a dry run only warns."""
+    try:
+        sids = (
+            list(dict.fromkeys(store.resolve(s) for s in session_ids))
+            if session_ids
+            else [store.latest(Shell.current()).session_id]
+        )
+    except SelectionError as exc:
+        die(str(exc))
+    claude_paths = ClaudePaths.default()
+    records = store.all()
+    picks = []
+    for sid in sids:
+        session = Session(sid, [r for r in records if r.session_id == sid], claude_paths)
+        picks.append(Pick(session, purge_session(session, dry_run=True)))
+    for pick in picks:
+        if not pick.found.running_pids:
+            continue
+        if not dry_run:
+            die(f'session {pick.session.id} is still running; nothing was removed')
+        err.print(
+            f'[yellow]warning:[/] session {pick.session.id} is still running, a purge would '
+            f'refuse it'
+        )
+    return picks
+
+
+def gather_approvals(picks: list[Pick], console: Console, *, asking: bool, quiet: bool) -> None:
+    """Show every picked session, and when asking, mark the ones the user declines. Quitting
+    exits before anything is removed."""
+    for pick in picks:
+        if not quiet:
+            print_review(console, pick)
+        if asking:
+            match ask(console, several=len(picks) > 1):
+                case 'n':
+                    pick.outcome = Outcome.DECLINED
+                case 'a':
+                    asking = False
+                case 'q':
+                    console.print('Nothing removed.')
+                    raise SystemExit(1)
+        if not quiet:
+            console.print()
+
+
+def json_report(picks: list[Pick], stale: list[Record], *, dry_run: bool) -> dict[str, Any]:
+    return {
+        'dry_run': dry_run,
+        'sessions': [
+            {
+                'session_id': p.session.id,
+                'outcome': p.outcome,
+                'running_pids': p.found.running_pids,
+                'findings': [{**f._asdict(), 'path': str(f.path)} for f in p.found.findings],
+                'total_size': p.size,
+                'records': [str(r.path) for r in p.session.records],
+                'synced_url': p.found.synced_url,
+                'memory_notes': [str(n) for n in p.found.memory_notes],
+            }
+            for p in picks
+        ],
+        'expired_records': [str(r.path) for r in stale],
+    }
+
+
+def print_review(console: Console, pick: Pick) -> None:
+    """Show what a purge of a session removes, and what it leaves for deletion by hand."""
+    session, found = pick.session, pick.found
+    console.print(f'[bold]Session {session.id}[/]')
+    if session.records:
+        r = session.records[0]
+        console.print(
+            f'  {escape(r.title or "-")}, ended {r.ended:%Y-%m-%d %H:%M} '
+            f'in {escape(tildify(r.directory))}',
+            soft_wrap=True,
+        )
+    if found.findings:
         table = Table(box=None, show_header=False)
         table.add_column(justify='right', no_wrap=True)
         table.add_column(style='dim', no_wrap=True)
         table.add_column(overflow='fold')
-        for f in result.findings:
+        for f in found.findings:
             where = f'{f.detail} in {tildify(f.path)}' if f.detail else tildify(f.path)
             table.add_row(human(f.size), f.kind, escape(where))
-        out.print(table)
-        out.print(f'Total: {human(sum(f.size for f in result.findings))} {verb}')
+        console.print(table)
+        console.print(f'Total: {human(pick.size)}')
     else:
-        out.print(f'No local artifacts found for session {sid}.')
-    if siblings or stale:
-        count = len(siblings) + len(stale)
-        out.print(
-            f'Records: {count} {verb} ({len(siblings)} of this session, {len(stale)} expired)'
-        )
-    if result.memory_notes:
-        out.print(f'Memory notes created by this session, kept: {len(result.memory_notes)}')
-        for note in result.memory_notes:
-            out.print(f'  {escape(tildify(note))}', soft_wrap=True)
+        console.print('No local artifacts found.')
+    if found.memory_notes:
+        console.print(f'Memory notes created by this session, kept: {len(found.memory_notes)}')
+        for note in found.memory_notes:
+            console.print(f'  {escape(tildify(note))}', soft_wrap=True)
     else:
-        out.print('Memory notes created by this session: none recorded')
-    out.print()
-    if result.synced_url:
-        out.print('Delete the synced copy by hand, from the session menu on claude.ai:')
-        out.print(f'  {result.synced_url}', soft_wrap=True)
-    else:
-        out.print(
+        console.print('Memory notes created by this session: none recorded')
+    if not found.synced_url:
+        console.print(
             'No claude.ai URL recorded: the session was not synced, or its transcript is gone.'
         )
+
+
+def ask(console: Console, *, several: bool) -> str:
+    """Ask whether to purge the session just shown. Returns `y`, `n`, `a` for this session and
+    all the rest, or `q` to quit and purge nothing. The last two are offered among several
+    sessions only. An end of input quits."""
+    try:
+        if several:
+            return Prompt.ask(
+                'Purge this session? (a: this and all the rest, q: quit and purge nothing)',
+                choices=['y', 'n', 'a', 'q'],
+                default='n',
+                console=console,
+            )
+        return 'y' if Confirm.ask('Purge this session?', default=False, console=console) else 'n'
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return 'q'
 
 
 @app.command(alias='r')
