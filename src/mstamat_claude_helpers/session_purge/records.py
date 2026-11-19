@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Collection, Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -16,6 +17,12 @@ from mstamat_claude_helpers.common.files import atomic_write
 
 RECORD_VERSION = 1
 RECORD_TTL = timedelta(days=14)
+LINUX_BOOT_ID = Path('/proc/sys/kernel/random/boot_id')  # a new id on every boot
+# The start time of a process in /proc/<pid>/stat: field 22, in clock ticks since boot.
+# NB: The process name, field 2, is in parentheses and may itself hold spaces, parentheses and
+#     newlines. The greedy match takes it up to the last parenthesis that the 20 fields after it
+#     allow. Fields are counted from the left, since the kernel adds new ones at the end.
+LINUX_STAT_START_RE = re.compile(r'\d+ \(.*\) \S(?: -?\d+){18} (?P<ticks>\d+) ', re.DOTALL)
 UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
@@ -36,26 +43,52 @@ class Process(Protocol):
 class Shell:
     """The shell a session was started from: the leader of the terminal session `claude` ran in.
 
-    A pid is reused once its process exits, so the start time completes the key.
+    A shell is identified by its pid and its start time. The pid alone is not enough, because the
+    system gives it to a new process after the shell exits. The identity is stored in a record and
+    compared later, so it must not change while the shell is running.
     """
 
     pid: int
-    started: float
+    started: float  # seconds since boot on Linux, seconds since the epoch elsewhere
+    boot: str | None = None  # the boot id, on Linux only; records from before 0.3.1 have none
 
     @classmethod
     def of_session(cls, sid: int) -> Self:
-        return cls(sid, round(psutil.Process(sid).create_time(), 2))
+        """Returns the identity of the leader of terminal session `sid`.
+
+        A session id is the pid of the session leader, which for a terminal session is the shell.
+        Two calls for the same running shell return equal values, also from different processes
+        and at different times. This is what lets a record written by the SessionEnd hook be
+        matched later against the shell that `claude-session-purge` runs in.
+        """
+        match sys.platform:
+            case 'linux':
+                # psutil's create_time() is not stable on Linux. The kernel only stores how long
+                # after boot a process started. psutil turns this into a date by adding the boot
+                # time, and the kernel computes the boot time from the current system clock. So
+                # whenever the clock is adjusted, the date of every running process changes too.
+                # On WSL the change can be hours, because the clock jumps forward after the host
+                # wakes from sleep.
+                # We use the stored value directly: the start time counted from boot. It restarts
+                # from zero on every boot, so we also keep the boot id, which is different for
+                # every boot.
+                # psutil has the same problem: https://github.com/giampaolo/psutil/issues/2526
+                # It now reads this value for its own checks, but does not offer it publicly. If
+                # it ever does, this code can be replaced by a call to psutil.
+                stat = Path(f'/proc/{sid}/stat').read_text(encoding='utf-8')
+                if not (match := LINUX_STAT_START_RE.match(stat)):  # pragma: no cover
+                    raise RuntimeError(f'/proc/{sid}/stat: no start time in {stat!r}')
+                started = int(match['ticks']) / os.sysconf('SC_CLK_TCK')
+                boot = LINUX_BOOT_ID.read_text(encoding='utf-8').strip()
+            case _:
+                # Other kernels store the start date itself, so create_time() is stable there.
+                started = round(psutil.Process(sid).create_time(), 2)
+                boot = None
+        return cls(sid, started, boot)
 
     @classmethod
     def current(cls) -> Self:
         return cls.of_session(os.getsid(0))
-
-    @property
-    def alive(self) -> bool:
-        try:
-            return round(psutil.Process(self.pid).create_time(), 2) == self.started
-        except psutil.NoSuchProcess:
-            return False
 
 
 @dataclass

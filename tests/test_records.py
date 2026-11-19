@@ -1,9 +1,12 @@
 import json
 import os
+import shutil
 import subprocess
+import sys
 from datetime import timedelta
 from pathlib import Path
 
+import psutil
 import pytest
 
 from mstamat_claude_helpers.common.claude_paths import ClaudePaths
@@ -115,6 +118,58 @@ def test_record_load__no_branch(store: RecordStore, make_record: MakeRecord) -> 
     [loaded] = store.all()
 
     assert loaded.branch is None
+
+
+def test_record_load__no_boot(store: RecordStore, make_record: MakeRecord) -> None:
+    """Test that a record written before the shell named its boot loads with a shell without one."""
+    record = make_record()
+    assert record.path is not None
+    data = json.loads(record.path.read_text())
+    del data['shell']['boot']
+    record.path.write_text(json.dumps(data))
+
+    [loaded] = store.all()
+
+    assert loaded.shell is not None
+    assert loaded.shell.boot is None
+
+
+# Shell ############################################################################################
+def test_shell_current__clock_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a shell keeps its key when a step of the system clock moves the start date of its
+    process."""
+    shell = Shell.current()
+    create_time = psutil.Process.create_time
+    monkeypatch.setattr(psutil.Process, 'create_time', lambda self: create_time(self) + 2)
+
+    assert shell.boot is not None
+    assert Shell.current() == shell
+
+
+def test_shell_of_session__name_with_spaces(tmp_path: Path) -> None:
+    """Test that the start of a process whose name holds spaces and parentheses is the one psutil
+    reads, less the boot time."""
+    program = tmp_path / 'a (b) c'
+    program.symlink_to(shutil.which('sleep') or '/bin/sleep')
+    process = subprocess.Popen([program, '60'])
+    try:
+        shell = Shell.of_session(process.pid)
+        started = psutil.Process(process.pid).create_time() - psutil.boot_time()
+    finally:
+        process.kill()
+        process.wait()
+
+    assert shell.started == pytest.approx(started, abs=0.01)
+
+
+def test_shell_of_session__other_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a platform without a form of its own keys the shell by the start date of its
+    process, without a boot."""
+    monkeypatch.setattr(sys, 'platform', 'darwin')
+
+    shell = Shell.of_session(os.getpid())
+
+    assert shell == Shell(os.getpid(), round(psutil.Process().create_time(), 2))
 
 
 # RecordStore ######################################################################################
