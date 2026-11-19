@@ -36,6 +36,52 @@ def test_list__branch(
     assert (OTHER[:8] in oldest, 'N/A' in oldest) == (True, True)
 
 
+@pytest.mark.usefixtures('claude_env')
+def test_list__marks(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    make_record: MakeRecord,
+    claude_paths: ClaudePaths,
+    claude_process: int,
+) -> None:
+    """Test that the list of every shell marks a running session with ▶ and a session that ended
+    in this shell with ●, each mark in its own place, and explains the marks it shows."""
+    monkeypatch.setenv('COLUMNS', '300')  # wide enough that no column is cut
+    elsewhere = Shell(pid=1, started=0.0)
+    make_record(SESSION)
+    make_record(OTHER, age=timedelta(hours=2), shell=elsewhere)
+    make_record(THIRD, age=timedelta(hours=3), shell=elsewhere)
+    claude_paths.sessions.mkdir(parents=True, exist_ok=True)
+    for pid_file, session_id in ((claude_process, SESSION), (claude_process + 1, OTHER)):
+        (claude_paths.sessions / f'{pid_file}.json').write_text(
+            json.dumps({'pid': claude_process, 'sessionId': session_id})
+        )
+
+    app(['l', '--all'], result_action='return_value')
+
+    _, both, running, neither, _, legend = capsys.readouterr().out.splitlines()
+    assert both.startswith(f' {SESSION[:8]} ▶●  ')
+    assert running.startswith(f' {OTHER[:8]} ▶   ')
+    assert neither.startswith(f' {THIRD[:8]}     ')
+    assert legend == '▶ running again   ● ended in this shell'
+
+
+@pytest.mark.usefixtures('claude_env')
+def test_list__this_shell(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, make_record: MakeRecord
+) -> None:
+    """Test that the list of this shell alone leaves out the sessions of other shells, the mark of
+    this shell, and the legend when it shows no mark."""
+    monkeypatch.setenv('COLUMNS', '300')  # wide enough that no column is cut
+    make_record(SESSION)
+    make_record(OTHER, shell=Shell(pid=1, started=0.0))
+
+    app(['l'], result_action='return_value')
+
+    _, row = capsys.readouterr().out.splitlines()
+    assert (SESSION[:8] in row, '●' in row) == (True, False)
+
+
 # purge() ##########################################################################################
 @pytest.fixture(name='answers')
 def fixture_answers(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:

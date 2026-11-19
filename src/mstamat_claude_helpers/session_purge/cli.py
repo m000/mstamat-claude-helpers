@@ -53,6 +53,14 @@ mode = Group('Mode', validator=validators.MutuallyExclusive())
 action = Group('Action', validator=validators.LimitedChoice(1, 1))
 
 
+RUNNING_MARK = '[yellow]▶[/]'
+HERE_MARK = '[cyan]●[/]'
+MARKS = {
+    RUNNING_MARK: f'{RUNNING_MARK} running again',
+    HERE_MARK: f'{HERE_MARK} ended in this shell',
+}
+
+
 def main() -> None:
     app()
 
@@ -83,13 +91,17 @@ def list_records(
 ) -> None:
     """List the recorded sessions of this shell, newest first.
 
+    A ▶ after an id marks a session that is running again.
+
     Parameters
     ----------
     every_shell
-        List the records of every shell, including shells that have exited.
+        List the records of every shell, including shells that have exited. A ● after an id
+        marks a session that ended in this shell: a purge without session ids takes the newest.
     """
     store = RecordStore.default()
-    records = store.all() if every_shell else store.of_shell(Shell.current())
+    here = Shell.current()
+    records = store.all() if every_shell else store.of_shell(here)
     if not records:
         out.print(
             'No recorded sessions.'
@@ -101,34 +113,36 @@ def list_records(
     claude_paths = ClaudePaths.default()
     notes = memory_notes(claude_paths)
     now = datetime.now().astimezone()
+    seen: set[str] = set()
     table = Table(box=None, header_style='bold')
     table.add_column('ID', no_wrap=True)
     table.add_column('Ended', no_wrap=True)
     table.add_column('Expires', justify='right', no_wrap=True)
-    if every_shell:
-        table.add_column('Terminal', no_wrap=True)
     table.add_column('Notes', justify='right', no_wrap=True)
     table.add_column('Directory', overflow='ellipsis', no_wrap=True, ratio=1)
     table.add_column('Branch', overflow='ellipsis', no_wrap=True, max_width=24)
     table.add_column('Title', overflow='ellipsis', no_wrap=True, ratio=2)
     for r in records:
-        running = Session(r.session_id, [r], claude_paths).running_pids
-        short_id = r.session_id[:8] + (' [yellow](running)[/]' if running else '')
+        running = bool(Session(r.session_id, [r], claude_paths).running_pids)
+        marks = {RUNNING_MARK: running, HERE_MARK: every_shell and r.shell == here}
+        seen.update(mark for mark, shown in marks.items() if shown)
+        # NB: Each mark keeps its own place, so that the marks of the rows line up.
+        short_id = f'{r.session_id[:8]} {"".join(m if s else " " for m, s in marks.items())}'
         days = math.ceil((r.expires - now) / timedelta(days=1))
         expires = f'{days} d' if days > 0 else '[red]expired[/]'
-        gone = '' if r.shell and r.shell.alive else ' [dim](gone)[/]'
-        terminal = [escape(r.terminal or '-') + gone] if every_shell else []
         table.add_row(
-            short_id,
+            short_id.rstrip(),
             f'{r.ended:%Y-%m-%d %H:%M}',
             expires,
-            *terminal,
             str(len(notes.get(r.session_id, []))),
             escape(tildify(r.directory)),
             escape(r.branch or 'N/A'),
             escape(r.title or '-'),
         )
     out.print(table)
+    if legend := [text for mark, text in MARKS.items() if mark in seen]:
+        out.print()
+        out.print('   '.join(legend), style='dim')
 
 
 @app.command(alias='p')
