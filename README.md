@@ -71,7 +71,9 @@ entry without a change, and `hook --uninstall` removes it.
     claude-session-purge list
     ```
 
-    Use `--all` to list the sessions of every shell.
+    Use `--all` to list the sessions of every shell. Use `-d DIR` instead to
+    list the sessions of every shell in a directory or below it, for example
+    `-d .` for the current directory. Repeat `-d` for several directories.
 
 2.  See what a purge of the latest session of the current shell would remove:
 

@@ -51,6 +51,7 @@ err = Console(stderr=True, highlight=False)
 app = App(name='claude-session-purge', help=__doc__, version=__version__)
 mode = Group('Mode', validator=validators.MutuallyExclusive())
 action = Group('Action', validator=validators.LimitedChoice(1, 1))
+scope = Group('Scope', validator=validators.MutuallyExclusive())
 
 
 RUNNING_MARK = '[yellow]▶[/]'
@@ -76,6 +77,13 @@ def tildify(path: Path) -> str:
     return str(Path('~') / path.relative_to(home)) if path.is_relative_to(home) else str(path)
 
 
+def in_any(path: Path, dirs: Sequence[Path]) -> bool:
+    """Whether a path is one of the directories or lies below one. Both sides are resolved, so
+    `~`, `.` and symbolic links match the directories they name."""
+    resolved = path.expanduser().resolve()
+    return any(resolved.is_relative_to(d.expanduser().resolve()) for d in dirs)
+
+
 def human(size: float) -> str:
     for unit in ('B', 'KiB', 'MiB'):
         if size < 1024:
@@ -87,7 +95,11 @@ def human(size: float) -> str:
 # Commands #########################################################################################
 @app.command(name='list', alias='l')
 def list_records(
-    *, every_shell: Annotated[bool, Parameter(name='--all', negative=())] = False
+    *,
+    every_shell: Annotated[bool, Parameter(name='--all', group=scope, negative=())] = False,
+    dirs: Annotated[
+        list[Path] | None, Parameter(name=['--dir', '-d'], group=scope, negative=())
+    ] = None,
 ) -> None:
     """List the recorded sessions of this shell, newest first.
 
@@ -98,13 +110,21 @@ def list_records(
     every_shell
         List the records of every shell, including shells that have exited. A ● after an id
         marks a session that ended in this shell: a purge without session ids takes the newest.
+    dirs
+        List only the sessions in this directory or below it, from every shell, marked as with
+        --all. Repeat it for several directories, and give `.` for the current one.
     """
     store = RecordStore.default()
     here = Shell.current()
+    every_shell = every_shell or bool(dirs)
     records = store.all() if every_shell else store.of_shell(here)
+    if dirs:
+        records = [r for r in records if in_any(r.directory, dirs)]
     if not records:
         out.print(
-            'No recorded sessions.'
+            'No recorded sessions in these directories.'
+            if dirs
+            else 'No recorded sessions.'
             if every_shell
             else 'No recorded sessions for this shell. Try --all.'
         )

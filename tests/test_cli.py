@@ -82,6 +82,62 @@ def test_list__this_shell(
     assert (SESSION[:8] in row, '●' in row) == (True, False)
 
 
+@pytest.mark.usefixtures('claude_env')
+def test_list__dirs(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    make_record: MakeRecord,
+    tmp_path: Path,
+) -> None:
+    """Test that --dir keeps the sessions of every shell in the given directories and below them,
+    that it can be repeated, that `.` names the current directory, and that it leaves out a
+    directory that only shares a prefix of its name."""
+    monkeypatch.setenv('COLUMNS', '300')  # wide enough that no column is cut
+    for d in ('a/sub', 'b', 'ab'):
+        (tmp_path / d).mkdir(parents=True)
+    make_record(SESSION, directory=tmp_path / 'a' / 'sub')
+    make_record(
+        OTHER, age=timedelta(hours=2), directory=tmp_path / 'b', shell=Shell(pid=1, started=0.0)
+    )
+    make_record(THIRD, age=timedelta(hours=3), directory=tmp_path / 'ab')
+
+    def listed(*arguments: str) -> list[str]:
+        app(['l', *arguments], result_action='return_value')
+        table, _, _ = capsys.readouterr().out.partition('\n\n')  # the legend follows a blank line
+        _, *rows = table.splitlines()
+        return [row.split()[0] for row in rows]
+
+    assert listed('-d', str(tmp_path / 'a')) == [SESSION[:8]]
+    assert listed('--dir', str(tmp_path / 'a'), '--dir', str(tmp_path / 'b')) == [
+        SESSION[:8],
+        OTHER[:8],
+    ]
+    monkeypatch.chdir(tmp_path / 'b')
+    assert listed('-d', '.') == [OTHER[:8]]
+
+
+@pytest.mark.usefixtures('claude_env')
+def test_list__dirs_none(
+    capsys: pytest.CaptureFixture[str], make_record: MakeRecord, tmp_path: Path
+) -> None:
+    """Test that a --dir that matches no session says so."""
+    make_record(SESSION)
+
+    app(['l', '-d', str(tmp_path / 'elsewhere')], result_action='return_value')
+
+    assert capsys.readouterr().out == 'No recorded sessions in these directories.\n'
+
+
+@pytest.mark.usefixtures('claude_env')
+def test_list__dirs_and_all(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    """Test that --dir, which lists every shell already, is refused together with --all."""
+    with pytest.raises(SystemExit) as exc:
+        app(['l', '--all', '-d', str(tmp_path)], result_action='return_value')
+
+    assert exc.value.code != 0
+    assert 'Mutually exclusive' in capsys.readouterr().err
+
+
 # purge() ##########################################################################################
 @pytest.fixture(name='answers')
 def fixture_answers(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:

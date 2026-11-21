@@ -38,13 +38,14 @@ def fixture_make_record(store: RecordStore, claude_paths: ClaudePaths) -> MakeRe
         age: timedelta = timedelta(hours=1),
         shell: Shell | None = None,
         branch: str | None = 'main',
+        directory: Path | None = None,
     ) -> Record:
         record = Record(
             session_id=session_id,
             reason='prompt_input_exit',
             ended=datetime.now().astimezone() - age,
             title='A title',
-            directory=claude_paths.claude_dir.parent / 'project',
+            directory=directory or claude_paths.claude_dir.parent / 'project',
             branch=branch,
             terminal='/dev/pts/9',
             shell=shell or Shell.current(),
