@@ -1,6 +1,6 @@
 [project]
 name = "mstamat-claude-helpers"
-version = "0.3.2"
+version = "0.4.0"
 description = "Command-line helpers around Claude Code: so far, a purge of the local artifacts of ended sessions."
 readme = "README.md"
 license = "Apache-2.0"
