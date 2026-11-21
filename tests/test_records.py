@@ -71,10 +71,17 @@ def test_record_from_hook__ancestors(
             ],
             'Fix the parser',
         ),
+        (
+            [
+                {'type': 'last-prompt', 'leafUuid': '0000', 'explicit': True},
+                {'type': 'last-prompt', 'lastPrompt': 'Fix the parser'},
+            ],
+            'Fix the parser',
+        ),
     ),
-    ids=('latest_ai_title', 'first_prompt'),
+    ids=('latest_ai_title', 'first_prompt', 'marker_without_prompt'),
 )
-def test_title_of__entries(tmp_path: Path, entries: list[dict[str, str]], title: str) -> None:
+def test_title_of__entries(tmp_path: Path, entries: list[dict[str, object]], title: str) -> None:
     """Test that the title is the latest AI title, or else the first prompt on one line."""
     transcript = tmp_path / 'transcript.jsonl'
     transcript.write_text(''.join(json.dumps(e) + '\n' for e in entries))

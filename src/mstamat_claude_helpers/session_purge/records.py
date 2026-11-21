@@ -200,7 +200,8 @@ def branch_of(directory: Path) -> str | None:
 
 
 def title_of(transcript: Path) -> str | None:
-    """The latest AI-generated title of a transcript, or else the first prompt of the session."""
+    """The latest AI-generated title of a transcript, or else the first prompt of the session.
+    Some last-prompt entries are bare markers without a prompt, so they are skipped."""
     ai_title = first_prompt = None
     with transcript.open(encoding='utf-8') as lines:
         for line in lines:
@@ -209,7 +210,11 @@ def title_of(transcript: Path) -> str | None:
             entry = json.loads(line)
             if entry.get('type') == 'ai-title':
                 ai_title = entry['aiTitle']
-            elif entry.get('type') == 'last-prompt' and first_prompt is None:
+            elif (
+                entry.get('type') == 'last-prompt'
+                and first_prompt is None
+                and 'lastPrompt' in entry
+            ):
                 first_prompt = ' '.join(entry['lastPrompt'].split())[:200]
     return ai_title or first_prompt
 
